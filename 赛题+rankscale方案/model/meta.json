@@ -1,0 +1,423 @@
+{
+ "plan": "CSI300 Index Enhancement — plan8 基线 + 特征标准化改百分位排名（单变量改动）",
+ "n_features": 38,
+ "feature_cols": [
+  "rev_5",
+  "bias_20",
+  "vol_cv_20",
+  "intraday_rev_1",
+  "macd_hist",
+  "pv_corr_20",
+  "turn_20",
+  "atr_14_norm",
+  "ep_ttm",
+  "size",
+  "btop",
+  "beta",
+  "illiq_20",
+  "downside_vol_20",
+  "overnight_rev",
+  "sharpe_100",
+  "pv_elastic_20",
+  "close_vs_mid_20",
+  "turn_accel",
+  "shadow_up_20",
+  "overnight_vol_share_20",
+  "trend_eff_20",
+  "kurt_20",
+  "rng_to_absret_20",
+  "elastic_asym_20",
+  "close_vs_vwap_20",
+  "intraday_autocorr_20",
+  "var_ratio_5_20",
+  "市值",
+  "贝塔",
+  "动量",
+  "残差波动",
+  "非线性市值",
+  "账面市值比",
+  "流动性",
+  "盈利",
+  "成长",
+  "杠杆"
+ ],
+ "barra_cols": [
+  "市值",
+  "贝塔",
+  "动量",
+  "残差波动",
+  "非线性市值",
+  "账面市值比",
+  "流动性",
+  "盈利",
+  "成长",
+  "杠杆"
+ ],
+ "ind_features": [],
+ "feature_scale": "rank",
+ "lookback": {
+  "rev_5": 6,
+  "bias_20": 20,
+  "vol_cv_20": 20,
+  "intraday_rev_1": 1,
+  "macd_hist": 26,
+  "pv_corr_20": 21,
+  "turn_20": 20,
+  "atr_14_norm": 15,
+  "ep_ttm": 0,
+  "size": 0,
+  "btop": 0,
+  "beta": 0,
+  "illiq_20": 20,
+  "downside_vol_20": 20,
+  "overnight_rev": 5,
+  "sharpe_100": 100,
+  "pv_elastic_20": 21,
+  "close_vs_mid_20": 20,
+  "turn_accel": 60,
+  "shadow_up_20": 20,
+  "overnight_vol_share_20": 20,
+  "trend_eff_20": 21,
+  "kurt_20": 20,
+  "rng_to_absret_20": 20,
+  "elastic_asym_20": 21,
+  "close_vs_vwap_20": 20,
+  "intraday_autocorr_20": 21,
+  "var_ratio_5_20": 20,
+  "市值": 0,
+  "贝塔": 0,
+  "动量": 0,
+  "残差波动": 0,
+  "非线性市值": 0,
+  "账面市值比": 0,
+  "流动性": 0,
+  "盈利": 0,
+  "成长": 0,
+  "杠杆": 0
+ },
+ "max_lookback": 100,
+ "groups": [
+  {
+   "name": "g1",
+   "num_leaves": 15,
+   "max_depth": 4,
+   "learning_rate": 0.04,
+   "n_estimators": 400,
+   "min_child_samples": 200,
+   "subsample": 0.8,
+   "colsample_bytree": 0.8,
+   "reg_lambda": 2.0
+  },
+  {
+   "name": "g2",
+   "num_leaves": 31,
+   "max_depth": 5,
+   "learning_rate": 0.03,
+   "n_estimators": 500,
+   "min_child_samples": 150,
+   "subsample": 0.8,
+   "colsample_bytree": 0.7,
+   "reg_lambda": 5.0
+  },
+  {
+   "name": "g3",
+   "num_leaves": 7,
+   "max_depth": 3,
+   "learning_rate": 0.05,
+   "n_estimators": 350,
+   "min_child_samples": 300,
+   "subsample": 0.9,
+   "colsample_bytree": 0.9,
+   "reg_lambda": 1.0
+  },
+  {
+   "name": "g4",
+   "num_leaves": 63,
+   "max_depth": 6,
+   "learning_rate": 0.02,
+   "n_estimators": 600,
+   "min_child_samples": 100,
+   "subsample": 0.7,
+   "colsample_bytree": 0.6,
+   "reg_lambda": 10.0
+  }
+ ],
+ "seeds": [
+  42,
+  202,
+  777,
+  1234,
+  2024,
+  7,
+  99,
+  555,
+  888,
+  31337
+ ],
+ "base_params": {
+  "objective": "regression",
+  "subsample_freq": 1,
+  "n_jobs": -1,
+  "verbose": -1,
+  "random_state": 42
+ },
+ "blend": "weighted per-day percentile-rank average over all models",
+ "target": "per-day decile rank (0-9) of Open(t+2)/Open(t+1)-1",
+ "label": "Open(t+2)/Open(t+1)-1, |y|>0.5 dropped",
+ "n_models": 40,
+ "models": [
+  {
+   "file": "model_g1_s42.txt",
+   "group": "g1",
+   "seed": 42,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g1_s202.txt",
+   "group": "g1",
+   "seed": 202,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g1_s777.txt",
+   "group": "g1",
+   "seed": 777,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g1_s1234.txt",
+   "group": "g1",
+   "seed": 1234,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g1_s2024.txt",
+   "group": "g1",
+   "seed": 2024,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g1_s7.txt",
+   "group": "g1",
+   "seed": 7,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g1_s99.txt",
+   "group": "g1",
+   "seed": 99,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g1_s555.txt",
+   "group": "g1",
+   "seed": 555,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g1_s888.txt",
+   "group": "g1",
+   "seed": 888,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g1_s31337.txt",
+   "group": "g1",
+   "seed": 31337,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g2_s42.txt",
+   "group": "g2",
+   "seed": 42,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g2_s202.txt",
+   "group": "g2",
+   "seed": 202,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g2_s777.txt",
+   "group": "g2",
+   "seed": 777,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g2_s1234.txt",
+   "group": "g2",
+   "seed": 1234,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g2_s2024.txt",
+   "group": "g2",
+   "seed": 2024,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g2_s7.txt",
+   "group": "g2",
+   "seed": 7,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g2_s99.txt",
+   "group": "g2",
+   "seed": 99,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g2_s555.txt",
+   "group": "g2",
+   "seed": 555,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g2_s888.txt",
+   "group": "g2",
+   "seed": 888,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g2_s31337.txt",
+   "group": "g2",
+   "seed": 31337,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g3_s42.txt",
+   "group": "g3",
+   "seed": 42,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g3_s202.txt",
+   "group": "g3",
+   "seed": 202,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g3_s777.txt",
+   "group": "g3",
+   "seed": 777,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g3_s1234.txt",
+   "group": "g3",
+   "seed": 1234,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g3_s2024.txt",
+   "group": "g3",
+   "seed": 2024,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g3_s7.txt",
+   "group": "g3",
+   "seed": 7,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g3_s99.txt",
+   "group": "g3",
+   "seed": 99,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g3_s555.txt",
+   "group": "g3",
+   "seed": 555,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g3_s888.txt",
+   "group": "g3",
+   "seed": 888,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g3_s31337.txt",
+   "group": "g3",
+   "seed": 31337,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g4_s42.txt",
+   "group": "g4",
+   "seed": 42,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g4_s202.txt",
+   "group": "g4",
+   "seed": 202,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g4_s777.txt",
+   "group": "g4",
+   "seed": 777,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g4_s1234.txt",
+   "group": "g4",
+   "seed": 1234,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g4_s2024.txt",
+   "group": "g4",
+   "seed": 2024,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g4_s7.txt",
+   "group": "g4",
+   "seed": 7,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g4_s99.txt",
+   "group": "g4",
+   "seed": 99,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g4_s555.txt",
+   "group": "g4",
+   "seed": 555,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g4_s888.txt",
+   "group": "g4",
+   "seed": 888,
+   "weight": 0.025
+  },
+  {
+   "file": "model_g4_s31337.txt",
+   "group": "g4",
+   "seed": 31337,
+   "weight": 0.025
+  }
+ ],
+ "nan_fill": 0.0,
+ "clip_z": 50.0,
+ "min_feature_nonnull": 30,
+ "min_cs_size": 50,
+ "sample_weight": "none (uniform)",
+ "industry_source": "不需要（不添加任何因子；IN_* 已停用）",
+ "prediction_direction": "higher score = better expected relative performance",
+ "train_rows": 496899,
+ "train_dates": 1691,
+ "train_period": "20160101..20221230",
+ "score_power": 1.0,
+ "change_vs_plan8": "特征横截面标准化 z-score → 百分位排名（其余完全一致）",
+ "evidence": "single_var/screen2.py: 2020/2021/2022 三年全部改善，均值 0.0446→0.0463"
+}

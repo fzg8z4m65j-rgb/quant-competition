@@ -1,0 +1,652 @@
+# 指数增强竞赛私榜评测与回测平台开发规格
+
+**需求方：QR**  
+**开发方：QD**  
+**用途：量化数据科学竞赛私榜评测、组合构建与 A 股统一回测**
+
+---
+
+## 项目目标
+
+平台用于在隐藏测试数据上统一评估参赛者模型，并将模型输出转换为可比较的指数增强结果。
+
+总体流程：
+
+**Hidden Data → `inference.py` → Stock Score → RankIC Evaluation → Portfolio Optimizer → A-share Backtest → Portfolio Metrics → Private Leaderboard**
+
+参赛者仅负责：
+
+**Data Processing + Feature Engineering + Model + Stock Score**
+
+平台统一负责：
+
+**Portfolio Construction + Trading Rules + Cost + Accounting + Evaluation**
+
+核心原则：
+
+> **参赛者负责预测，平台负责把预测在统一、无未来信息、符合 A 股交易约束的环境中转换为可比较的投资结果。**
+
+---
+
+## 参赛提交与推理接口
+
+参赛者提交结构：
+
+```text
+submission/
+├── inference.py
+└── model/
+    └── trained_model
+```
+
+`model/` 允许包含多个模型文件，以兼容 XGBoost、LightGBM、CatBoost、Random Forest、SVM、Ensemble 等方法。
+
+所有训练阶段拟合得到的参数都必须已经固化在提交内容中，例如模型参数、Scaler、PCA、Feature Selector、Ensemble Weight 等。隐藏评测期间不得重新训练模型或利用隐藏标签更新任何参数。
+
+### `inference.py` 统一接口
+
+```python
+class InferenceModel:
+
+    def __init__(self, model_dir: str):
+        """Load trained model artifacts."""
+        ...
+
+    def predict(self, as_of_date, data):
+        """
+        Generate stock scores using information
+        available no later than as_of_date.
+
+        Returns
+        -------
+        pd.DataFrame
+        columns = ["date", "code", "score"]
+        """
+        ...
+```
+
+平台只初始化一次模型：
+
+```python
+model = InferenceModel("./submission/model/")
+```
+
+每个信号日调用：
+
+```python
+scores = model.predict(
+    as_of_date=signal_date,
+    data=available_data
+)
+```
+
+`inference.py` 内部由参赛者自行完成：
+
+**Raw Data → Cleaning → Feature Engineering → Feature Processing → Load Model → Prediction**
+
+平台不需要理解每支队伍具体进行了哪些特征处理。
+
+### 推理输出要求
+
+| 字段 | 要求 |
+|---|---|
+| `date` | 必须等于当前 `as_of_date` |
+| `code` | 当前合法股票池中每只股票必须且只能出现一次 |
+| `score` | 有限数值，不允许 NaN / Inf |
+| 覆盖率 | 当前合法股票池 100% |
+| 含义 | score 越高，表示模型认为未来相对表现越好 |
+
+示例：
+
+```csv
+date,code,score
+202X-XX-XX,600519,0.8231
+202X-XX-XX,000858,0.7175
+202X-XX-XX,601318,0.6152
+```
+
+---
+
+## 时间推进与数据隔离
+
+私榜必须按照历史时间顺序逐期运行，禁止将完整隐藏区间一次性交给参赛代码。
+
+统一时间逻辑：
+
+**Day t Close → 提供截至 t 的数据 → `inference.py` → score(t) → Portfolio Optimizer → Day t+1 Open 执行调仓**
+
+在信号日 `t`：
+
+- 可以访问：截至 `t` 日收盘已经实际公开并可获得的信息；
+- 不可访问：`date > t` 的行情、未来财务数据、未来成分股、未来收益、未来标签、未来组合表现。
+
+财务数据必须提前完成 Point-in-Time 处理。某份财报在日期 `T` 才正式披露，则 `date < T` 时不得出现在模型输入中。
+
+---
+
+## 行情价格体系
+
+当前研究数据为**后复权行情**。后复权价格适合用于特征工程、收益率、Momentum、Volatility 等连续时间序列计算，但不是历史当天真实可成交价格。
+
+因此平台应区分研究价格与交易价格。
+
+| 用途 | 价格体系 | 使用场景 |
+|---|---|---|
+| Research Price | 后复权 OHLC | `inference.py`、特征工程、历史收益计算 |
+| Execution Price | 不复权真实 OHLC | 股数、现金、成交、手续费、涨跌停判断、持仓估值 |
+
+正式交易系统至少需要满足以下一种数据条件：
+
+| 方案 | 所需数据 |
+|---|---|
+| A | 真实不复权 OHLC + 后复权 OHLC |
+| B | 后复权 OHLC + 每日复权因子 |
+
+如果只能获得后复权行情，同时没有真实价格或复权因子，则不能做严格的 `Shares + Cash + Lot Size + Fee` A 股订单级回测，只能退化为 **Weight-Based Adjusted Return Backtest**。
+
+建议同时准备以下 Point-in-Time 交易状态字段：
+
+`upper_limit`、`lower_limit`、`is_suspended`、`is_st`、`board`
+
+---
+
+## 公司行为处理
+
+公司行为是否需要单独入账，取决于交易引擎采用哪套价格体系。
+
+| 回测方式 | 分红 / 送股 / 转增 / 配股处理 |
+|---|---|
+| 后复权收益型回测 | 公司行为已反映在复权价格中，不再额外入账 |
+| 真实价格 + Shares + Cash | 需要 Corporate Action Engine 显式处理 |
+
+### 真实价格模式下
+
+| 公司行为 | 账户处理 |
+|---|---|
+| 现金分红 | `Cash` 增加 |
+| 送股 / 转增 | `Shares` 增加 |
+| 拆股 / 合股 | 调整 `Shares` 与价格基准 |
+| 配股 | 按统一规则决定是否认购，并扣除认购资金 |
+
+必须避免：
+
+**后复权收益 + 现金分红入账 + 送股增加股数**
+
+同时存在，否则会发生 Double Counting。
+
+---
+
+## A 股交易引擎
+
+交易账户至少维护以下状态：
+
+| 状态 | 含义 |
+|---|---|
+| `cash` | 可用现金 |
+| `total_shares` | 实际持股数量 |
+| `sellable_shares` | 当日可卖数量 |
+| `market_value` | 持仓市值 |
+| `portfolio_value` | 现金 + 持仓市值 |
+
+单个执行日的处理顺序：
+
+**Corporate Actions → Open Market State → Tradability Check → Target Shares → Sell Orders → Update Cash → Buy Orders → Update Positions → Close Mark-to-Market**
+
+统一采用**先卖后买**。卖出成功释放的现金可用于当天买入。
+
+平台不允许融资、不允许杠杆、任何时刻现金不得小于 0。
+
+---
+
+## A 股核心交易规则
+
+### T+1
+
+普通 A 股当天买入的股票当天不可卖出，因此必须维护：
+
+```text
+total_shares
+sellable_shares
+```
+
+当日买入只增加 `total_shares`，下一交易日后才增加 `sellable_shares`。
+
+即使本比赛采用多日调仓周期，底层 Broker 仍应正确实现 T+1。
+
+### 整手与零股
+
+普通股票买入数量按 100 股整数倍处理：
+
+```text
+buy_shares = floor(target_shares / 100) * 100
+```
+
+卖出时：
+
+- 正常卖出按实际 `sellable_shares`；
+- 如果剩余不足 100 股，应允许一次性卖出剩余零股；
+- 因送股或转增产生的零股不得导致无法清仓。
+
+### 涨跌停
+
+涨跌幅比例不要写死为 `±10%`。不同板块、ST 状态和历史时期规则不同，应直接读取 Point-in-Time 的：
+
+```text
+date, code, upper_limit, lower_limit
+```
+
+本比赛采用日频数据，无法模拟盘口排队，因此使用保守成交规则：
+
+| 开盘状态 | 买单 | 卖单 |
+|---|---:|---:|
+| `Open >= Upper Limit` | 拒绝 | 按正常卖出规则判断 |
+| `Open <= Lower Limit` | 按正常买入规则判断 | 拒绝 |
+| 正常开盘 | 可成交 | 可成交 |
+
+不能利用当天 `high`、`low`、`close` 等开盘后信息决定开盘订单是否成交。
+
+### 停牌
+
+若执行日无有效 `Open` 或 `is_suspended == True`：
+
+| 行为 | 结果 |
+|---|---|
+| Buy | Rejected |
+| Sell | Rejected |
+| Existing Position | 保留 |
+
+停牌持仓不能从 NAV 中直接删除。估值使用最近一个有效可获得价格，直到恢复交易或发生明确资产处理。
+
+### 指数成分调整
+
+股票池必须使用历史 Point-in-Time 的沪深300成分数据，至少包含：
+
+```text
+date, code, is_member, benchmark_weight
+```
+
+股票被调出指数后：
+
+```text
+target_weight = 0
+```
+
+如果因停牌或跌停无法卖出，实际持仓继续存在。
+
+因此必须明确区分：
+
+**Target Portfolio ≠ Actual Portfolio**
+
+---
+
+## Score 到组合权重
+
+不同队伍的 `score` 数值尺度可能完全不同，因此不能直接将原始 score 当作预期收益。
+
+统一先做截面变换：
+
+**Raw Score → Cross-sectional Rank → Percentile / Normal Score → Unified Alpha Signal**
+
+这样私榜组合主要取决于股票相对排序，而不是 score 人为放大或缩小。
+
+Portfolio Optimizer 与 Broker 必须独立：
+
+```python
+target_weights = optimizer.optimize(
+    scores=scores,
+    benchmark_weights=benchmark_weights,
+    barra_exposures=barra_exposures,
+    current_weights=current_weights,
+    config=config,
+)
+```
+
+组合约束全部通过配置设置，不写死在交易代码中：
+
+| 约束 | 是否配置化 |
+|---|---|
+| Long Only | 是 |
+| Fully Invested | 是 |
+| Single-name Weight Limit | 是 |
+| Active Weight Limit | 是 |
+| Industry Exposure Limit | 是 |
+| Barra Style Exposure Limit | 是 |
+| Turnover Limit | 是 |
+
+第一版可先使用 `Top-K` 或简单 benchmark tilt，正式私榜再替换为 Barra 风险约束优化器。
+
+---
+
+## 目标权重到真实订单
+
+Optimizer 输出：
+
+```text
+code,target_weight
+```
+
+Broker 计算：
+
+```text
+Target Value = Portfolio Equity × Target Weight
+Target Shares = Target Value / Raw Open Price
+Order Shares = Target Shares - Current Shares
+```
+
+随后按 A 股整手规则取整。
+
+执行顺序固定为：
+
+**Sell Orders → Update Cash → Buy Orders**
+
+若卖单因跌停或停牌失败，实际现金少于理论值，则买单必须根据真实剩余现金缩减，不能产生负现金。
+
+---
+
+## 信号时间与成交价格
+
+正式交易时间统一定义：
+
+**Day t Close Generate Signal → Day t+1 Open Execute Orders**
+
+模型可以使用 `t` 日完整的 Close、Volume、Amount 等数据，因此不能再假设能够以 `Close(t)` 成交。
+
+基础成交价：
+
+```text
+execution_price = raw_open
+```
+
+滑点配置化：
+
+```text
+Buy Price  = Open × (1 + slippage)
+Sell Price = Open × (1 - slippage)
+```
+
+第一版可设置 `slippage = 0`，但接口必须保留。
+
+---
+
+## 交易费用
+
+交易费用通过独立 `CostModel` 处理：
+
+```python
+cost = cost_model.calculate(
+    date=date,
+    side=side,
+    trade_value=trade_value,
+)
+```
+
+至少支持：
+
+| 费用项 | 要求 |
+|---|---|
+| Commission | 配置化 |
+| Stamp Tax | 按日期读取历史费率 |
+| Transfer Fee | 配置化 / 历史化 |
+| Slippage | 配置化 |
+
+历史费率不得简单写死为一个全时期固定值，应支持：
+
+**Trading Date → Applicable Fee Schedule**
+
+---
+
+## Portfolio Accounting
+
+平台每天维护：
+
+```text
+Cash
+Shares
+Market Value
+Portfolio Value
+Portfolio NAV
+Benchmark NAV
+```
+
+真实价格模式下：
+
+```text
+Market Value(t) = Σ Shares(i,t) × Raw Close(i,t)
+Portfolio Value(t) = Cash(t) + Market Value(t)
+```
+
+同时计算：
+
+```text
+portfolio_return
+benchmark_return
+active_return
+```
+
+其中：
+
+```text
+active_return = portfolio_return - benchmark_return
+```
+
+---
+
+## Prediction Evaluation
+
+预测能力与交易表现必须分开评价。
+
+若持有周期为 `H` 个交易日：
+
+```text
+Entry = Open(t+1)
+Exit  = Open(t+H+1)
+```
+
+因此真实标签：
+
+```text
+Future Return(i,t)
+=
+Open(i,t+H+1) / Open(i,t+1) - 1
+```
+
+每个调仓日计算：
+
+```text
+RankIC(t) = Spearman(score(t), future_return(t))
+```
+
+隐藏期至少输出：
+
+| 指标 | 定义 |
+|---|---|
+| Mean RankIC | 所有调仓日 RankIC 均值 |
+| RankIC Std | RankIC 时间序列标准差 |
+| RankICIR | Mean RankIC / RankIC Std |
+| Positive RankIC Ratio | RankIC > 0 的调仓日占比 |
+
+年化 RankICIR 如需要，由 Leaderboard 层根据调仓频率计算，不在底层写死。
+
+---
+
+## Portfolio Evaluation
+
+平台至少输出以下组合指标：
+
+| 类别 | 指标 |
+|---|---|
+| 收益 | Total Return |
+| 收益 | Annualized Return |
+| 增强 | Annualized Excess Return |
+| 风险 | Annualized Volatility |
+| 风险 | Maximum Drawdown |
+| 增强 | Tracking Error |
+| 增强 | Information Ratio |
+| 综合 | Sharpe Ratio |
+| 交易 | Turnover |
+| 交易 | Transaction Cost |
+| 交易 | Failed Orders |
+
+核心定义：
+
+```text
+Active Return(t)
+=
+Portfolio Return(t) - Benchmark Return(t)
+
+Tracking Error
+=
+std(Active Return) × sqrt(252)
+
+Information Ratio
+=
+mean(Active Return) / std(Active Return) × sqrt(252)
+```
+
+最终私榜如何组合 RankIC 和 Portfolio Performance 由 QR 在赛制层配置。
+
+QD 的 Metrics 模块只负责输出原始指标，不写死最终排行榜权重。
+
+---
+
+## 输出文件
+
+每支队伍完成评测后生成：
+
+```text
+result/
+├── metrics.json
+├── predictions.csv
+├── rankic.csv
+├── target_weights.csv
+├── orders.csv
+├── trades.csv
+├── positions.csv
+├── equity_curve.csv
+└── run.log
+```
+
+| 文件 | 关键字段 |
+|---|---|
+| `predictions.csv` | `date, code, score, future_return` |
+| `rankic.csv` | `date, rankic, n_stocks` |
+| `target_weights.csv` | `signal_date, execution_date, code, score, benchmark_weight, target_weight` |
+| `orders.csv` | `date, code, side, requested_shares, status, reject_reason` |
+| `trades.csv` | `date, code, side, shares, price, trade_value, commission, stamp_tax, other_cost, total_cost` |
+| `positions.csv` | `date, code, shares, sellable_shares, close, market_value, weight` |
+| `equity_curve.csv` | `date, cash, market_value, portfolio_value, portfolio_nav, portfolio_return, benchmark_nav, benchmark_return, active_return, turnover, transaction_cost` |
+
+常见 `reject_reason`：
+
+`LIMIT_UP`、`LIMIT_DOWN`、`SUSPENDED`、`INSUFFICIENT_CASH`、`T1_NOT_SELLABLE`
+
+这些输出必须支持完整审计链：
+
+**score → target weight → order → trade → position → NAV**
+
+---
+
+## 系统模块边界
+
+| 模块 | 职责 |
+|---|---|
+| Submission Runner | 加载并运行 `inference.py` |
+| Data Provider | 提供截至当前时点可见的数据；交易数据仅对引擎开放 |
+| Prediction Evaluator | RankIC / RankICIR |
+| Portfolio Optimizer | score → target weights |
+| Broker / Execution Engine | A 股交易规则、订单、成交、现金、持仓 |
+| Corporate Action Engine | 分红、送转、配股；仅真实价格模式需要 |
+| Cost Model | Commission / Stamp Tax / Transfer Fee / Slippage |
+| Portfolio Accounting | NAV、Daily Return |
+| Metrics | Prediction + Portfolio Evaluation |
+| Result Writer | Leaderboard 与审计文件 |
+
+其中必须坚持：
+
+> **Portfolio Optimizer ≠ Broker**
+
+Optimizer 决定“理论上希望持有什么”，Broker 决定“按照当天真实 A 股约束，实际能够成交什么”。
+
+---
+
+## 平台统一运行入口
+
+建议：
+
+```bash
+python evaluate.py \
+    --submission submissions/team_001 \
+    --config configs/private.yaml
+```
+
+执行链路：
+
+**Load Config → Load Submission → Initialize Model → Generate Signal Calendar → Build As-of Data → Run Inference → Validate Score → RankIC → Portfolio Optimization → t+1 Open Execution → Update Cash/Positions → Daily Mark-to-Market → Final Metrics → Result Files**
+
+---
+
+## 必须保证的回测原则
+
+| 原则 | 要求 |
+|---|---|
+| No Look-Ahead | `t` 日模型不得读取 `date > t` 的数据 |
+| Signal / Execution Separation | 使用 `t` 日收盘信息，只能从 `t+1` 开始成交 |
+| Historical Trading Rules | 涨跌停、停牌、费用必须按历史日期处理 |
+| Target ≠ Actual | 无法成交时真实持仓可偏离目标持仓 |
+| Adjusted ≠ Execution Price | 后复权用于研究，真实价用于交易 |
+| Corporate Action Once | 公司行为只能计入一次 |
+| Deterministic Evaluation | 同一 submission + dataset + config 必须完全可复现 |
+
+---
+
+## 第一阶段开发范围
+
+第一版优先打通：
+
+**`inference.py` → score → RankIC → Top-K / Simple Benchmark Tilt → Target Weight → Next-open Execution → A-share Rules → Cash / Positions → Daily NAV → Portfolio Metrics**
+
+第一版稳定以后再接入：
+
+**Barra Risk Model + Industry Constraints + Style Constraints + Active Weight Constraints + Turnover Constraints + Official Optimizer**
+
+更换 Portfolio Optimizer 不应要求修改 Broker、Accounting 或 Metrics。
+
+---
+
+## 开发前数据确认
+
+正式开发交易引擎前，需要确认以下数据是否可获得：
+
+| 数据 | 是否必须 |
+|---|---|
+| 后复权 OHLC | 必须 |
+| 真实不复权 OHLC 或复权因子 | 严格股数/现金回测必须 |
+| `upper_limit / lower_limit` | 建议必须 |
+| Suspension Status | 必须 |
+| Historical CSI300 Constituents | 必须 |
+| Historical Benchmark Weights | 指数增强必须 |
+| Corporate Action Data | 真实价格模式需要 |
+
+最关键的问题是：
+
+> **能否获得真实不复权价格，或者能够从后复权价格恢复真实价格的复权因子。**
+
+如果可以：
+
+**后复权数据 → Feature Engineering / Inference；真实价格 → Trading / Accounting**
+
+如果不能：
+
+**只能采用 Adjusted-return Portfolio Backtest，不实现严格的真实股数与现金撮合。**
+
+---
+
+## 最终交付目标
+
+QD 最终交付的平台应稳定完成：
+
+**Participant Model → Cross-sectional Score → RankIC Evaluation → Unified Portfolio Construction → A-share Trading Simulation → Portfolio Accounting → Risk-adjusted Evaluation → Private Leaderboard**
+
+并保证：
+
+> **所有队伍在相同数据、相同组合规则、相同 A 股交易规则和相同评价体系下完成私榜评测。**

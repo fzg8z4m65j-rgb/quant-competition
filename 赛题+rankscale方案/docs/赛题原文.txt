@@ -1,0 +1,264 @@
+===== 第 1 页 =====
+CSI 300 Index Enhancement Challenge Competition Description
+沪深 300 指数增强与截面选股
+数据科学挑战赛
+CSI 300 Index Enhancement & Cross-Sectional Stock Selection Challenge
+Competition Goal. 利用 2016–2022 年公开训练数据学习沪深 300 成分股的日频截面
+Alpha 信号，并在组织方保留的未来隐藏市场数据上检验模型的样本外泛化能力。隐藏数据
+被划分为 Public Leaderboard 与 Private Leaderboard 两部分，具体时间区间均不公开；
+Public Leaderboard 用于提交调试与有限的样本外反馈， Private Leaderboard 用于最终
+排名。组织方在评测阶段使用统一组合构建与回测框架，将模型得分转化为指数增强组合。
+Overview
+股票投资的一个基本问题是：在同一时点面对一组可投资股票时， 哪些股票未来可能表现得更好， 哪
+些股票未来可能表现得更差？ 对投资者而言，真正重要的往往不是准确预测某一只股票未来上涨多
+少，而是能否在可投资股票之间形成稳定、有效的相对判断。
+本赛题以沪深 300 历史成分股为研究对象。沪深 300 可以理解为一组具有代表性的 A 股上市公
+司构成的基准股票池。若投资者完全按照指数权重持有这些股票，其组合表现将大体跟随沪深 300；
+而指数增强（Index Enhancement ）的目标，是在不过度偏离基准风险结构的前提下，适度提
+高预期表现较好股票的配置、降低预期表现较差股票的配置，从而获得相对于指数的超额收益。
+因此，本赛题首先需要解决的是一个截面选股 （Cross-Sectional Stock Selection ）问题。 所
+谓“截面” ，是指在同一个交易日同时比较多只股票。对于每一个调仓时点，参赛者需要利用当时已
+经能够获得的历史量价、基本面和风险因子信息，为当期沪深 300 成分股分别生成一个连续预测得
+分。
+若股票 i 在交易日 t 的特征向量为 xi,t，模型输出记为
+si,t = fθ(xi,t),
+其中 si,t 为股票的预测得分。得分越高，表示模型认为该股票未来下一个 open-to-open 交易周期
+的相对表现越好。这里的得分不要求具有“预测收益率”的直接数值含义，例如 si,t = 0.8 并不意味
+着股票未来一定上涨 8%。
+比赛关注的核心并不是对单只股票未来收益进行精确数值预测，而是判断：
+在同一个股票截面上，哪些股票未来可能表现更好，哪些股票未来可能表现更差？
+如果模型能够持续把未来收益更高的股票排在更靠前的位置， 就说明它具有有效的截面预测能力。 最
+终隐藏评测阶段，组织方再将这些股票得分统一转换为相对于沪深 300 的主动配置，并通过统一的
+组合优化和 B2 回测框架检验这种预测能力能否真正转化为指数增强收益。
+Financial Data → Feature Engineering → Machine Learning → Cross-Sectional
+Ranking → Index Enhancement
+因此，本赛题的主体仍然是一个标准的数据科学问题：参赛者主要负责数据处理、特征工程和预测
+建模；投资组合优化、交易执行与最终收益评估由组织方在隐藏评测阶段统一完成。模型结构不作
+1
+===== 第 2 页 =====
+CSI 300 Index Enhancement Challenge Competition Description
+限制，线性模型、支持向量机、Random Forest、XGBoost、LightGBM、Learning-to-Rank 以
+及模型集成都可以用于本赛题，深度学习并不是完成比赛的必要条件。
+Data
+T raining Data
+组织方向参赛者公开提供 2016–2022 年训练数据。该区间中的特征与预测标签均可用于特征研
+究、模型训练、超参数选择以及本地样本外检验。2016–2022 是参赛者唯一已知并可直接用于模
+型开发的时间区间。
+组织方不预设固定的 T rain / Validation / Local T est 划分。参赛者应在 2016–2022 年内部自行
+按照时间顺序完成数据划分，例如使用较早时期训练、中间时期验证，并保留末端连续时期作为本
+地测试；也可以采用 expanding window、rolling window 或 walk-forward validation。
+关键要求是始终保持时间顺序：
+T raining Period< Validation Period < Local T est Period.
+随机打乱日期后进行普通随机划分可能使未来市场状态进入模型训练或参数选择，因此不适用于本
+赛题。
+Public / Private Leaderboard. 在 2016–2022 年之外， 组织方另外保留未来市场数据
+作为隐藏评测集，并预先划分为 Public Leaderboard 与 Private Leaderboard 两部分。两
+部分数据的具体年份、 起止日期与划分方式均不向参赛者公开。Public Leaderboard 仅用于
+确认提交能够正常运行、调试推理流程并提供有限的样本外反馈； Private Leaderboard 不
+提供过程反馈，并用于比赛最终排名。 参赛者不会直接获得或下载两部分隐藏数据文件、 标签
+或真实收益；隐藏特征仅在组织方评测环境中按照 as-of 时间约束传入 ‘inference.py‘。
+Data Structure
+数据以 date × stock 的面板形式组织。每条样本对应某一交易日的一只当期沪深 300 成分股。
+核心字段包括股票代码、交易日期、指数成分状态、基准权重以及各类预测特征。
+数据主要覆盖以下信息来源：
+Market Data. Open、High、Low、Close、Volume、Amount 等日频行情，以及由历史行情
+构造的收益、动量、波动率、成交活跃度和流动性信息。
+Fundamental Data. 估值、盈利能力、成长性、杠杆、现金流和财务质量等公司基本面信息。
+Risk Factors. Barra 风格风险因子与行业暴露， 包括Size、Beta、Momentum、Value、Volatility、
+Liquidity 等系统性风险特征。
+股票池按照每个历史时点真实有效的沪深 300 成分股构造，而不是使用当前成分股向历史回溯。所
+有基本面数据和风险数据均按照 Point-in-Time 原则处理：在交易日 t 构造特征时，只允许使用截
+至该日收盘时已经真实可获得的信息。
+对于具有时间序列性质的市场数据， 比赛统一设置最大历史回看窗口 （look-back window） 为120
+个交易日。若记实际使用窗口为 L，则
+1 ≤ L ≤ 120.
+2
+===== 第 3 页 =====
+CSI 300 Index Enhancement Challenge Competition Description
+在交易日 t 生成预测时，参赛者最多可以使用最近 120 个交易日的市场历史，即 t − 119, . . . , t。当
+期已经合法公开的 Point-in-Time 基本面数据、Barra 风险因子与行业信息可以作为 t 日截面信息
+使用，不因其原始报告期早于 120 日而失效。
+Feature Engineering
+金融数据中的原始变量并不天然适合作为横截面预测输入。特征工程的目的，是把原始行情和公司
+信息转换为具有横截面可比性、能够刻画价格行为或企业状态的统计变量。
+例如，股票的绝对价格水平通常没有直接的横截面预测意义。一只股票价格高于另一只股票，并不
+意味着其未来收益更高。相比之下，历史收益、动量、反转、波动率、成交量变化、换手率和流动性
+等变量更直接描述了股票当前所处的市场状态。
+参赛者可以基于公开原始数据自由构造新的特征，但任何依赖历史市场序列的特征都必须满足 L ≤
+120 的 look-back 限制。例如 5 日收益、20 日动量、60 日波动率和 120 日成交量统计均被允许，
+而依赖 250 个交易日历史行情的 rolling feature 不在允许范围内。典型研究方向包括：
+• 不同窗口上的 Momentum、Reversal 与 Volatility；
+• Volume、Amount、T urnover与 Liquidity 的变化；
+• Overnight Return 与 Intraday Return 的分解；
+• 估值、盈利、成长、杠杆和财务质量因子；
+• 因子交互、非线性变换、缺失值处理与异常值缩尾；
+• 横截面标准化、行业调整及风险因子中性化。
+以截面标准化为例，对于某个因子 x，可在交易日 t 内计算
+zi,t = xi,t − µt(x)
+σt(x) ,
+其中 µt(x) 和 σt(x) 分别表示该日股票截面上该因子的均值和标准差。 经过这种处理后， 模型学习的
+重点从绝对数值转化为“该股票相对于当日其他股票处于什么位置” ，与截面选股目标更加一致。
+特征数量本身并不是比赛目标。有效的特征工程应同时关注经济含义、数据可得性、稳定性与样本
+外泛化能力。
+Modeling
+在每一个调仓日， 数据可以被视为一个横截面机器学习问题。 对于股票i， 模型根据xi,t 输出预测得
+分 si,t。本赛题不限制具体模型类型，也不会因为模型复杂度本身给予额外奖励。
+最直接的建模方式是 point-wise prediction 。模型可以预测股票未来收益
+ˆyi,t = fθ(xi,t),
+随后在每个交易日内部按照 ˆyi,t 对股票进行排序。Linear / Ridge Regression 、Support Vector
+Regression、Random Forest、XGBoost、LightGBM 和 CatBoost 等方法均可直接用于这一框
+架。
+另一类方法是 Learning to Rank 。对于选股问题而言，模型并不一定需要准确判断某只股票未
+3
+===== 第 4 页 =====
+CSI 300 Index Enhancement Challenge Competition Description
+来收益是 2.1% 还是 2.3%，更重要的是正确判断
+ui ≻ uj,
+即股票 i 的未来表现应当优于股票 j。因此，参赛者也可以将每个调仓日视为一个 ranking group，
+使用 XGBoost Ranker、LightGBM LambdaRank 或其他排序学习方法直接优化截面顺序。
+模型集成同样被允许。参赛者可以组合不同特征集合、不同模型或不同时间窗口的预测结果，只要
+最终能够在规定接口下为每个股票生成一个连续 ‘score‘。
+Prediction T arget
+本赛题固定采用下一交易日 open-to-open 收益作为预测口径，不再设置可变持有周期。对每一
+个交易日 t， 模型使用截至当日收盘已经合法获得的信息生成股票截面得分； 交易统一在下一交易日
+开盘执行。
+时间轴固定为：
+Day t Close → Generate Score → Day t + 1 Open Rebalance → Day t + 2 Open
+Next Rebalance
+因此，股票 i 在信号日 t 对应的真实预测标签定义为
+yi,t = Oi,t+2
+Oi,t+1
+− 1,
+其中 Oi,t+1 为信号产生后的下一交易日开盘价，Oi,t+2 为再下一交易日开盘价。也就是说，模型预
+测的是从 t + 1 开盘建仓到 t + 2 开盘重新调仓之间的单日 open-to-open 收益。
+采用这一口径的原因，是使特征可得时间、预测生成时间、实际成交时间和收益评价区间严格一致。
+模型已经使用 t 日收盘信息，因此最早只能在 t + 1 日开盘成交；将标签定义为 Oi,t+2/Oi,t+1 − 1 可
+以避免把无法真实获得的收益计入模型目标。
+本赛题每天重新生成股票得分并形成新的目标组合，但 每日调仓并不意味着每日全部清仓再重新买
+入。统一回测系统将根据相邻两个目标组合之间的权重差异执行必要交易，从而避免人为制造额外
+换手。
+模型在信号日 t 使用的市场历史最多覆盖最近 120 个交易日：
+X (L)
+i,t = {xi,t−L+1, . . . ,xi,t}, 1 ≤ L ≤ 120.
+参赛者可以自行选择不超过 120 个交易日的实际 look-back window， 并在该范围内构造Momen-
+tum、Reversal、Volatility、Volume、T urnover、Liquidity 等特征。 当期合法可得的基本面、Barra
+风险因子和行业信息作为 Point-in-Time 截面信息提供。
+比赛最终关注的仍是未来收益的 截面顺序而不是收益率绝对值。因此，如果 si,t > s j,t，希望股票 i
+的下一期 open-to-open 收益尽可能高于股票 j。
+T raining and Leaderboard Evaluation
+4
+===== 第 5 页 =====
+CSI 300 Index Enhancement Challenge Competition Description
+Local Development on 2016–2022
+参赛者只被告知并公开获得 2016–2022 年训练数据。所有特征研究、模型训练、超参数选择以及
+本地验证都应在该区间内部完成。组织方不规定固定划分，参赛者可以根据时间序列原则自行设置
+T rain / Validation / Local T est，或采用 rolling / expanding / walk-forward 等验证方式。
+本地开发建议主要使用截面 RankIC 衡量模型效果。在交易日 t，定义
+RankICt = ρSpearman(st, yt) ,
+其中 st 表示该日所有当期成分股的模型得分，yt 表示从 t + 1 开盘到 t + 2 开盘的真实收益。整个
+评价区间的平均截面预测能力为
+RankIC = 1
+T
+T∑
+t=1
+RankICt .
+Public Leaderboard
+Public Leaderboard 使用组织方保留的隐藏未来市场数据进行评测。Public Leaderboard 对
+应的具体年份、起止日期和样本范围均不公开。 参赛者提交训练完成的模型包后，由组织方统一运
+行 ‘inference.py‘，按日生成股票 score 并计算公开榜成绩。
+Public Leaderboard 的主要作用是帮助参赛者确认提交格式和推理流程能够正常运行，并提供有
+限的真实样本外反馈。 参赛者只能看到组织方公布的榜单指标， 不会获得Public Leaderboard 原始
+数据、 标签、 逐日真实收益或完整回测明细。 由于公榜反馈本身可能被反复调参利用，Public Leader-
+board 成绩不作为最终比赛排名的唯一依据。
+Private Leaderboard
+Private Leaderboard 使用另一部分组织方保留的隐藏未来数据。Private Leaderboard 的具
+体年份、 起止日期和与Public Leaderboard 的划分方式同样不公开。私榜数据在比赛过程中不
+提供任何标签或逐期成绩反馈，最终由组织方统一运行参赛者的最终模型提交。
+隐藏评测的推理流程保持一致：
+As-of Hidden Data → Submitted Model → Daily Stock Scores → RankIC
+Evaluation
+随后，组织方使用同一组股票得分进入统一指数增强组合框架：
+Stock Scores → Portfolio Optimization → Unified Backtest → Index
+Enhancement Metrics
+Private Leaderboard 用于最终排名。参赛者无需编写隐藏期回测逻辑，也无法访问隐藏期标签。
+为支持最大 120 个交易日的 look-back，平台会在每个隐藏评测时点向 ‘inference.py‘ 提供截至
+该日、 最多最近120 个交易日的可见市场历史，以及当期合法的 Point-in-Time 基本面与风险因子
+快照；用于 warm-up 的历史数据不单独计入排行榜成绩。
+5
+===== 第 6 页 =====
+CSI 300 Index Enhancement Challenge Competition Description
+Portfolio Construction in the Final Evaluation
+组合优化不属于开发阶段的必做任务，而是组织方在最终隐藏评测中用于检验 Alpha 信号是否能够
+转化为实际投资收益的统一下游流程。
+设 wb
+t 为当期沪深 300 基准权重，模型得分经过统一处理后形成预期 Alpha ˆαt。组合优化的基本
+思想是
+max
+wt
+ˆα⊤
+t wt − λ R(wt, wb
+t ) − η T (wt, wt−1),
+其中 R(·) 表示相对于基准的主动风险惩罚，T (·) 表示换手与交易成本惩罚。
+组织方将对所有队伍使用 完全一致的组合构建规则，包括 Long-only、仅投资当期沪深 300 成分
+股、 单股权重约束、 行业偏离约束、Barra 风格暴露控制、 换手限制、 手续费以及涨跌停约束。 这样
+可以保证最终差异主要来自参赛模型提供的 Alpha 排序，而不是不同队伍自行设计的交易规则。
+最终回测由 B2 引擎统一完成。投资表现将报告 Annualized Excess Return 、T racking Error、
+Information Ratio、Maximum Drawdown 与 T urnover等指标。其中
+IR = Annualized Excess Return
+T racking Error
+用于衡量单位主动风险所对应的超额收益水平。
+Final Ranking
+最终排名由 Private Leaderboard 决定，并同时评价模型在私榜隐藏数据上的截面预测能力与
+预测信号经过统一组合优化后的 指数增强表现。Public Leaderboard 仅用于调试与有限反馈，不
+直接决定最终名次。
+为了保持比赛的数据科学属性，预测能力在最终评分中占主要权重。最终综合成绩定义为
+Final Score = 0.70 × SRankIC + 0.30 × SIR,
+其中 SRankIC 和 SIR 分别为隐藏评测期 Mean RankIC 与 Information Ratio 在所有有效提交中的
+标准化得分。标准化方式将在比赛规则页固定，并对所有队伍保持一致。
+Submission
+最终提交不包含对隐藏数据的预测文件。每支队伍提交的核心内容为训练完成的 model artifact
+与统一的 ‘inference.py‘。‘inference.py‘ 负责从组织方提供的原始 as-of 数据开始，完成数据
+清洗、 特征构造、 特征对齐、 模型加载和最终预测； 所有依赖训练阶段拟合得到的参数必须已经固化
+在 model artifact 中。必要的环境依赖与模型加载说明按照组织方模板一并提供。
+统一推理接口的输出格式为：
+date code score
+YYYY -MM-DD stock code continuous prediction score
+在同一交易日内，‘score‘ 越高必须表示模型认为该股票未来相对表现越好。 预测值不要求是收益率，
+也不要求不同模型具有相同量纲。
+6
+===== 第 7 页 =====
+CSI 300 Index Enhancement Challenge Competition Description
+Baseline
+组织方将提供一个可完整运行的基础 Baseline，包括数据读取、时间划分、基础特征处理、模型训
+练、截面预测与 RankIC 计算。
+推荐的入门流程为：
+Data Cleaning → Feature Processing → XGBoost → Score → Cross-Sectional
+RankIC
+同时可以提供 Ridge Regression 和 Random Forest 作为简单对照模型， 以及XGBoost / Light-
+GBM Ranking 作为进阶示例。
+本赛题不要求使用深度学习。 模型规模和计算资源本身不会获得额外评分； 更重要的是特征质量、 验
+证方法、模型泛化能力以及对金融数据时间结构的正确处理。
+Competition Rules
+• 只能使用比赛允许的数据源；未经允许不得引入额外商业或外部金融数据库。
+• 任何特征都必须满足 Point-in-Time 可得性， 不得使用未来行情、 未来财务信息或未来指数成分
+信息。
+• 模型开发和参数选择必须基于公开开发数据完成，不得以任何方式探测或反推出隐藏评测期标
+签。
+• 训练、验证与本地测试必须遵守时间顺序，不建议使用随机打乱日期的普通随机切分。
+• 历史市场序列的最大 look-back window 为 120 个交易日， 不允许构造依赖更长历史行情窗口
+的特征。
+• 2016–2022 为公开训练区间；Public / Private Leaderboard 所使用的隐藏数据时间范围均
+不公开，参赛者不得尝试探测、恢复或利用隐藏期真实标签。
+• 提交模型必须能够在组织方规定的计算资源和时间限制内完成加载与推理。
+• 最终成绩以组织方在统一隐藏数据、统一组合构建规则和统一 B2 回测环境中的结果为准。
+What We Are Looking For
+这场比赛并不是寻找最复杂的模型，而是寻找能够在金融数据中发现稳定模式、并在真正未见的未
+来市场环境中保持有效性的建模方法。
+一个优秀的参赛方案通常需要同时回答三个问题：
+What information is predictive? 哪些金融变量真正包含未来截面收益信息？
+How should the model learn it? 应该如何构造特征、验证模型并学习股票之间
+的相对关系？
+Does it survive out of sample? 当市场进入完全未见的未来时期后，这种预测能
+力是否仍然存在，并能够转化为真实指数增强收益？
+最终，我们希望参赛者完成从数据、特征、模型、预测到投资决策的一次完整数据科学实践。
+7
